@@ -18,6 +18,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
       - name: Android SDK
         run: |
@@ -39,7 +40,12 @@ jobs:
         run: |
           chmod +x gradlew
           set -o pipefail
-          ./gradlew assembleRelease --no-daemon 2>&1 | tee build.log
+          # Maven Central sometimes rate-limits shared runners; retry a few times.
+          for attempt in 1 2 3 4; do
+            if ./gradlew assembleRelease --no-daemon 2>&1 | tee build.log; then break; fi
+            if ! grep -q "429" build.log || [ "$attempt" = 4 ]; then exit 1; fi
+            echo "Rate limited, retrying in $((attempt * 60))s"; sleep $((attempt * 60))
+          done
           cp app/build/outputs/apk/release/app-release.apk Xavine.apk
 
       - uses: actions/upload-artifact@v4
