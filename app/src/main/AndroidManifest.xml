@@ -48,7 +48,16 @@
             </intent-filter>
         </receiver>
 
-        <!-- Android Auto -->
+        <!-- Car screen as a media app (allowed for sideloaded apps) -->
+        <service
+            android:name=".XavineMediaService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+
+        <!-- Android Auto (template version, needs a Play install) -->
         <service
             android:name=".car.XavineCarAppService"
             android:exported="true">
