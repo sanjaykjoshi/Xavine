@@ -95,6 +95,46 @@ public final class Locations {
         tracker = null;
     }
 
+    /** Gets a fresh fix (up to ~10 s), falling back to the last known one. Callback may get null. */
+    @SuppressWarnings("MissingPermission")
+    public static void fetchFresh(Context c, java.util.function.Consumer<Location> done) {
+        if (!hasPermission(c)) {
+            done.accept(null);
+            return;
+        }
+        LocationManager lm = (LocationManager) c.getSystemService(Context.LOCATION_SERVICE);
+        if (lm == null || Build.VERSION.SDK_INT < 30) {
+            done.accept(best(c));
+            return;
+        }
+        java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
+        android.os.Handler h = new android.os.Handler(Looper.getMainLooper());
+        Runnable timeout = () -> {
+            if (finished.compareAndSet(false, true)) done.accept(best(c));
+        };
+        h.postDelayed(timeout, 10000);
+        String provider = (Build.VERSION.SDK_INT >= 31 && lm.getAllProviders().contains(LocationManager.FUSED_PROVIDER))
+                ? LocationManager.FUSED_PROVIDER : LocationManager.GPS_PROVIDER;
+        try {
+            lm.getCurrentLocation(provider, null, c.getMainExecutor(), loc -> {
+                if (finished.compareAndSet(false, true)) {
+                    h.removeCallbacks(timeout);
+                    done.accept(loc != null ? loc : best(c));
+                }
+            });
+        } catch (Exception e) {
+            if (finished.compareAndSet(false, true)) {
+                h.removeCallbacks(timeout);
+                done.accept(best(c));
+            }
+        }
+    }
+
+    public static boolean hasBackgroundPermission(Context c) {
+        return Build.VERSION.SDK_INT < 29
+                || c.checkSelfPermission(Manifest.permission.ACCESS_BACKGROUND_LOCATION) == PackageManager.PERMISSION_GRANTED;
+    }
+
     /** Saves where the car is now. Returns false if no location is available. */
     public static boolean saveParkingHere(Context c) {
         Location l = best(c);
@@ -125,6 +165,8 @@ public final class Locations {
                 .setSmallIcon(android.R.drawable.ic_menu_mylocation)
                 .setContentTitle("Parking spot saved")
                 .setContentText("Tap to walk back to your Altroz")
+                .setWhen(p.ts)
+                .setShowWhen(true)
                 .setContentIntent(pi)
                 .setAutoCancel(true)
                 .build();

@@ -284,6 +284,30 @@ public final class Store {
         prefs(c).edit().remove("park_lat").remove("park_lon").remove("park_ts").apply();
     }
 
+    // ------------------------------------------------------------ car Bluetooth
+
+    public static void setCar(Context c, String address, String name) {
+        prefs(c).edit().putString("car_bt", address).putString("car_bt_name", name).apply();
+    }
+
+    public static String carAddress(Context c) {
+        return prefs(c).getString("car_bt", null);
+    }
+
+    public static String carName(Context c) {
+        return prefs(c).getString("car_bt_name", null);
+    }
+
+    /** True the first time it's called for this reminder today. */
+    public static boolean firstNoticeToday(Context c, long reminderId) {
+        Calendar cal = Calendar.getInstance();
+        String today = cal.get(Calendar.YEAR) + "-" + cal.get(Calendar.DAY_OF_YEAR);
+        String key = "noticed_" + reminderId;
+        if (today.equals(prefs(c).getString(key, ""))) return false;
+        prefs(c).edit().putString(key, today).apply();
+        return true;
+    }
+
     // ------------------------------------------------------------ formatting
 
     public static String rupees(double v) {

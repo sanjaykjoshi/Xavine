@@ -63,6 +63,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        Reminders.schedule(this);
         render();
     }
 
@@ -89,23 +90,40 @@ public class MainActivity extends Activity {
 
     // ------------------------------------------------------------ setup
 
-    private boolean needsPermissions() {
-        boolean loc = Locations.hasPermission(this);
-        boolean notif = Build.VERSION.SDK_INT < 33
+    private boolean notificationsAllowed() {
+        return Build.VERSION.SDK_INT < 33
                 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
-        return !(loc && notif);
     }
 
     private void renderSetup() {
-        LinearLayout card = card("Set up");
-        if (needsPermissions()) {
-            card.addView(text("Xavine needs location (for fuel stations and your parking spot) "
-                    + "and notifications (to tell you where you parked).", 15, DIM, false));
-            card.addView(button("Allow location & notifications", v -> askPermissions()));
-        } else {
-            card.addView(text("✓ Location and notifications allowed", 15, 0xFF81C784, false));
+        boolean loc = Locations.hasPermission(this);
+        boolean bg = Locations.hasBackgroundPermission(this);
+        boolean notif = notificationsAllowed();
+        String car = Store.carName(this);
+        if (loc && bg && notif && car != null) {
+            LinearLayout card = card("Set up");
+            card.addView(text("\u2713 All set. Car: " + car, 15, 0xFF81C784, false));
+            card.addView(button("Change car Bluetooth", v -> chooseCar()));
+            card.addView(button("About the car screen", v -> showAutoHelp()));
+            return;
         }
-        card.addView(button("How to show Xavine in Android Auto", v -> showAutoHelp()));
+        LinearLayout card = card("Set up (one time)");
+        card.addView(step(loc && notif, "1. Allow location and notifications",
+                v -> askPermissions()));
+        card.addView(step(bg, "2. Location \u2192 \u201CAllow all the time\u201D (saves parking after you leave)",
+                v -> askBackground()));
+        card.addView(step(car != null, car == null ? "3. Choose your Altroz's Bluetooth" : "3. Car: " + car,
+                v -> chooseCar()));
+        card.addView(button("About the car screen", v -> showAutoHelp()));
+    }
+
+    private View step(boolean done, String label, View.OnClickListener fix) {
+        if (done) {
+            TextView t = text("\u2713 " + label.replaceFirst("^\\d\\. ", ""), 15, 0xFF81C784, false);
+            t.setPadding(0, px(6), 0, px(6));
+            return t;
+        }
+        return button(label, fix);
     }
 
     private void askPermissions() {
@@ -116,16 +134,67 @@ public class MainActivity extends Activity {
         requestPermissions(perms.toArray(new String[0]), 5);
     }
 
+    private void askBackground() {
+        if (!Locations.hasPermission(this)) {
+            askPermissions();
+            return;
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Allow all the time")
+                .setMessage("To save your parking spot after you've left the car, Xavine needs location "
+                        + "while it's closed. On the next screen choose \u201CAllow all the time\u201D.\n\n"
+                        + "Xavine only checks location at the moment your phone disconnects from the car.")
+                .setPositiveButton("Continue", (d, w) ->
+                        requestPermissions(new String[]{Manifest.permission.ACCESS_BACKGROUND_LOCATION}, 6))
+                .setNegativeButton("Not now", null)
+                .show();
+    }
+
+    private void chooseCar() {
+        if (Build.VERSION.SDK_INT >= 31
+                && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT}, 7);
+            return;
+        }
+        android.bluetooth.BluetoothManager bm = getSystemService(android.bluetooth.BluetoothManager.class);
+        android.bluetooth.BluetoothAdapter adapter = bm == null ? null : bm.getAdapter();
+        if (adapter == null) {
+            toast("Bluetooth isn't available");
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        List<String> addresses = new ArrayList<>();
+        try {
+            for (android.bluetooth.BluetoothDevice d : adapter.getBondedDevices()) {
+                String n = d.getName();
+                names.add(n == null || n.isEmpty() ? d.getAddress() : n);
+                addresses.add(d.getAddress());
+            }
+        } catch (SecurityException e) {
+            toast("Allow Nearby devices for Xavine, then try again");
+            return;
+        }
+        if (names.isEmpty()) {
+            toast("No paired devices. Pair your phone with the car first.");
+            return;
+        }
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Which one is your Altroz?")
+                .setItems(names.toArray(new String[0]), (d, which) -> {
+                    Store.setCar(this, addresses.get(which), names.get(which));
+                    render();
+                })
+                .show();
+    }
+
     private void showAutoHelp() {
         new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
-                .setTitle("Show Xavine in Android Auto")
-                .setMessage("Android Auto only shows Play Store apps unless you allow others once:\n\n"
-                        + "1. Open Android Auto settings on your phone (Settings → search \"Android Auto\").\n\n"
-                        + "2. Scroll to the bottom and tap \"Version\" about 10 times, then allow developer settings.\n\n"
-                        + "3. Tap the ⋮ menu (top right) → Developer settings → turn on \"Unknown sources\".\n\n"
-                        + "4. Unplug and reconnect to the car. Xavine appears in the car's app list. "
-                        + "If not, add it under Android Auto settings → Customise launcher.\n\n"
-                        + "Typing (fill-ups) works when the car is stopped, e.g. at the pump.")
+                .setTitle("About the car screen")
+                .setMessage("Xavine has a car-screen version, but current Android Auto only shows such apps "
+                        + "when they are installed from Google Play, so it stays hidden for now.\n\n"
+                        + "Everything else works from your phone: fill-ups and mileage, reminders as "
+                        + "notifications (when you get in the car and each morning), and your parking spot "
+                        + "saved automatically when the phone disconnects from the car.")
                 .setPositiveButton("OK", null)
                 .show();
     }
@@ -187,7 +256,7 @@ public class MainActivity extends Activity {
         LinearLayout card = card("Parking spot");
         Store.Parking p = Store.parking(this);
         if (p == null) {
-            card.addView(text("Saved automatically when you disconnect from Android Auto.", 15, DIM, false));
+            card.addView(text("Saved automatically when your phone disconnects from the car\u2019s Bluetooth.", 15, DIM, false));
         } else {
             String when = new SimpleDateFormat("h:mm a, d MMM", Locale.getDefault()).format(new Date(p.ts));
             card.addView(text("Parked at " + when, 17, Color.WHITE, false));
@@ -306,7 +375,7 @@ public class MainActivity extends Activity {
         List<Store.FillUp> list = Store.fillUps(this);
         LinearLayout card = card("Fill-ups");
         if (list.isEmpty()) {
-            card.addView(text("No fill-ups yet. Log them here or on the car screen.", 15, DIM, false));
+            card.addView(text("No fill-ups yet. Tap Add fill-up after filling petrol.", 15, DIM, false));
             return;
         }
         SimpleDateFormat fmt = new SimpleDateFormat("d MMM yyyy", Locale.getDefault());
