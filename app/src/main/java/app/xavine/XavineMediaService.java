@@ -63,6 +63,7 @@ public final class XavineMediaService extends MediaBrowserService {
         extras.putBoolean(STYLE_SUPPORTED, true);
         extras.putInt(STYLE_BROWSABLE, 1);
         extras.putInt(STYLE_PLAYABLE, 1);
+        refreshStations(); // start early so the Fuel tab is ready
         return new BrowserRoot(ROOT, extras);
     }
 
@@ -101,32 +102,118 @@ public final class XavineMediaService extends MediaBrowserService {
                 return;
             }
             case TAB_STATIONS:
-                result.detach();
-                new Thread(() -> {
-                    List<MediaItem> out = new ArrayList<>();
-                    Location here = Locations.best(this);
-                    if (here == null) {
-                        out.add(info("e1", "Location not available yet", "Allow location for Xavine on your phone"));
-                    } else {
-                        try {
-                            for (Locations.Station st : Locations.nearbyStations(here.getLatitude(), here.getLongitude(), 10000, 12)) {
-                                String dist = st.metres < 1000
-                                        ? Math.round(st.metres) + " m"
-                                        : String.format(Locale.US, "%.1f km", st.metres / 1000f);
-                                out.add(info("st:" + st.lat + "," + st.lon + ":" + st.name, st.name,
-                                        dist + (st.detail.isEmpty() ? "" : " · " + st.detail)));
-                            }
-                            if (out.isEmpty()) out.add(info("e2", "No fuel stations within 10 km", null));
-                        } catch (Exception e) {
-                            out.add(info("e3", "Couldn't load stations", "Check the phone's internet"));
-                        }
-                    }
-                    main.post(() -> result.sendResult(out));
-                }).start();
+                loadStations(result);
                 return;
             default:
                 result.sendResult(items);
         }
+    }
+
+    // ------------------------------------------------------------ fuel stations
+
+    private static List<MediaItem> cached;          // last good list
+    private static long cachedAt;
+    private static double cachedLat, cachedLon;
+    private static boolean fetching;
+    private static String lastProblem;
+    private static long lastProblemAt;
+
+    private static boolean cacheFresh(Location here) {
+        if (cached == null) return false;
+        if (System.currentTimeMillis() - cachedAt > 20 * 60 * 1000L) return false;
+        if (here == null) return true;
+        float[] d = new float[1];
+        Location.distanceBetween(cachedLat, cachedLon, here.getLatitude(), here.getLongitude(), d);
+        return d[0] < 2000;
+    }
+
+    /** Answers Android Auto within ~6 s; real results follow via notifyChildrenChanged. */
+    private void loadStations(Result<List<MediaItem>> result) {
+        Location here = Locations.best(this);
+        if (cacheFresh(here)) {
+            result.sendResult(new ArrayList<>(cached));
+            return;
+        }
+        // Just failed? Show why instead of retrying in a loop.
+        if (lastProblem != null && System.currentTimeMillis() - lastProblemAt < 60000) {
+            List<MediaItem> out = new ArrayList<>();
+            out.add(info("e1", lastProblem, "Try again in a minute"));
+            result.sendResult(out);
+            return;
+        }
+        result.detach();
+        final boolean[] sent = {false};
+        Runnable sendNow = () -> {
+            if (sent[0]) return;
+            sent[0] = true;
+            List<MediaItem> out = new ArrayList<>();
+            if (cached != null && cacheFresh(null)) {
+                out.addAll(cached);
+            } else if (lastProblem != null && !fetching) {
+                out.add(info("e1", lastProblem, "Open the Fuel tab again to retry"));
+            } else {
+                out.add(info("wait", "Searching for petrol pumps\u2026", "The list will appear in a few seconds"));
+            }
+            result.sendResult(out);
+        };
+        main.postDelayed(sendNow, 6000);
+        refreshStations(() -> {
+            if (!sent[0]) {
+                main.removeCallbacks(sendNow);
+                sendNow.run();
+            } else {
+                notifyChildrenChanged(TAB_STATIONS);
+            }
+        });
+    }
+
+    private void refreshStations() {
+        refreshStations(null);
+    }
+
+    private void refreshStations(Runnable onDone) {
+        if (fetching) {
+            if (onDone != null) main.postDelayed(() -> refreshStations(onDone), 1000);
+            return;
+        }
+        if (cacheFresh(Locations.best(this))) {
+            if (onDone != null) onDone.run();
+            return;
+        }
+        fetching = true;
+        Locations.fetchFresh(getApplicationContext(), here -> new Thread(() -> {
+            List<MediaItem> out = new ArrayList<>();
+            String problem = null;
+            if (here == null) {
+                problem = "Location not available. Allow location \u201CAll the time\u201D for Xavine.";
+            } else {
+                try {
+                    for (Locations.Station st : Locations.nearbyStations(here.getLatitude(), here.getLongitude(), 10000, 12)) {
+                        String dist = st.metres < 1000
+                                ? Math.round(st.metres) + " m"
+                                : String.format(Locale.US, "%.1f km", st.metres / 1000f);
+                        out.add(info("st:" + st.lat + "," + st.lon + ":" + st.name, st.name,
+                                dist + (st.detail.isEmpty() ? "" : " \u00B7 " + st.detail)));
+                    }
+                    if (out.isEmpty()) out.add(info("e2", "No fuel stations within 10 km", null));
+                } catch (Exception e) {
+                    problem = "Couldn't reach the map server (" + e.getClass().getSimpleName() + ")";
+                }
+            }
+            final String p = problem;
+            main.post(() -> {
+                fetching = false;
+                lastProblem = p;
+                if (p != null) lastProblemAt = System.currentTimeMillis();
+                if (p == null) {
+                    cached = out;
+                    cachedAt = System.currentTimeMillis();
+                    cachedLat = here.getLatitude();
+                    cachedLon = here.getLongitude();
+                }
+                if (onDone != null) onDone.run();
+            });
+        }).start());
     }
 
     /** Tapping a station tries to start Google Maps navigation. */

@@ -184,11 +184,12 @@ public final class Locations {
 
     /** Blocking network call: run off the main thread. */
     public static List<Station> nearbyStations(double lat, double lon, int radiusMetres, int max) throws Exception {
-        String query = "[out:json][timeout:20];nwr[\"amenity\"=\"fuel\"](around:" + radiusMetres + ","
+        String query = "[out:json][timeout:12];nwr[\"amenity\"=\"fuel\"](around:" + radiusMetres + ","
                 + lat + "," + lon + ");out center 80;";
         String[] servers = {
                 "https://overpass-api.de/api/interpreter",
                 "https://overpass.kumi.systems/api/interpreter",
+                "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
         };
         Exception last = null;
         for (String server : servers) {
@@ -203,8 +204,8 @@ public final class Locations {
 
     private static String post(String server, String query) throws Exception {
         HttpURLConnection con = (HttpURLConnection) new URL(server).openConnection();
-        con.setConnectTimeout(12000);
-        con.setReadTimeout(25000);
+        con.setConnectTimeout(6000);
+        con.setReadTimeout(14000);
         con.setRequestMethod("POST");
         con.setDoOutput(true);
         con.setRequestProperty("User-Agent", "Xavine/1.0 (personal Android Auto app)");
