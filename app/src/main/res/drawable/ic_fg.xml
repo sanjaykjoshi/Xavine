@@ -3,9 +3,13 @@
     android:width="108dp" android:height="108dp"
     android:viewportWidth="108" android:viewportHeight="108">
     <!-- fuel drop -->
-    <path android:fillColor="#FF4FC3F7"
-        android:pathData="M54,28 C54,28 38,48 38,60 A16,16 0 0 0 70,60 C70,48 54,28 54,28 Z" />
-    <!-- X mark -->
-    <path android:pathData="M48,54 L60,68 M60,54 L48,68"
-        android:strokeColor="#FF0F1A24" android:strokeWidth="4" android:strokeLineCap="round" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M54,24 C54,24 33,49 33,64 A21,21 0 0 0 75,64 C75,49 54,24 54,24 Z" />
+    <!-- open road -->
+    <path android:fillColor="#FF0E3B66"
+        android:pathData="M44,81 L51.5,48 H56.5 L64,81 Q54,86.5 44,81 Z" />
+    <!-- lane markings -->
+    <path android:fillColor="#FFFFD54F" android:pathData="M53.3,53 h1.4 v5 h-1.4 Z" />
+    <path android:fillColor="#FFFFD54F" android:pathData="M53.1,61 h1.8 v6 h-1.8 Z" />
+    <path android:fillColor="#FFFFD54F" android:pathData="M52.9,70.5 h2.2 v7 h-2.2 Z" />
 </vector>
